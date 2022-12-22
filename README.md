@@ -16,8 +16,11 @@ Three projects are included in this repository.
 
  
 There are numerous ways you can use the repository.
+
 (1) use the Generator Components
+
 (2) use the Generator components in conjunction with the Generator Service
+
 (3) combine all three projects.
 
 ## Installation
