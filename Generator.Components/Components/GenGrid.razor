@@ -1,5 +1,4 @@
-﻿@*@typeparam TModel where TModel :new()*@
-@inherits MudTable<object>
+﻿@inherits MudTable<object>
 @using Generator.Shared.Extensions
 
 @if (DataSource is null) {return;}
@@ -25,7 +24,7 @@
                     @{
                         if (EnableSearch)
                         {
-                            <MudTextField @bind-Value="@_SearchString"
+                            <MudTextField @bind-Value="@_searchString"
                                           Disabled="SearchDisabled"
                                           Class="mt-0 mr-5"
                                           Placeholder="@SearchPlaceHolderText"
@@ -44,15 +43,13 @@
         </MudCardHeader>
 
         
+        @* ReSharper disable once AsyncVoidLambda *@
         @{
-
-
-            <MudTable @ref="@GridRef"
+            <MudTable  
                       T="object"
                       Items="DataSource"
                       Dense="Dense"
                       RowClassFunc="@RowClassFunc"
-                      OnRowClick="@OnRowClick"
                       MultiSelection="MultiSelection"
                       Breakpoint="Breakpoint.None"
                       Hover="Hover"
@@ -65,8 +62,8 @@
                       Filter="new Func<object,bool>(SearchFunction)"
                       Virtualize="Virtualize"
                       OnCommitEditClick="OnEditCLick"
-                      RowEditPreview="async x=> await OnBeforeAnyAction(x)"
-                      RowEditCancel="async x=> OnCancel(x)"
+                      RowEditPreview="x=>OnBackUp(x)"
+                      RowEditCancel="x=> OnCancelClick(x)"
                       RowEditCommit="async x=> await OnCommit(x)"
                       IsEditRowSwitchingBlocked="true"
                       ApplyButtonPosition="TableApplyButtonPosition.End"
@@ -85,7 +82,7 @@
 
                             </MudTh>
                         }
-                        foreach (var item in GetComponentOf<IGenComponent>().Where(x => x.VisibleOnGrid))
+                        foreach (var item in GetComponentsOf<IGenComponent>().Where(x => x.VisibleOnGrid))
                         {
                             <MudTh>
                                 @item.Label
@@ -96,7 +93,7 @@
 
                     <div style="@(DetailClicked?"pointer-events: none;opacity:0.4;":string.Empty)">
                         <MudGrid Class="ml-10" Justify="Justify.FlexEnd">
-                            <MudIconButton Icon="@Icons.Material.Filled.AddCircle" Size="Size.Medium" @onclick="OnAddNewEvent" Disabled="NewDisabled" />
+                                <MudIconButton Icon="@AddIcon"  Size="Size.Medium" @onclick="OnCreateClick" Disabled="NewDisabled" />
                         </MudGrid>
                     </div>
 
@@ -105,10 +102,9 @@
                 </MudTh>
                 </HeaderContent>
 
-
                 <RowTemplate>
+ 
                     @{
-
                         if (HasDetail && EditMode != EditMode.SmartPopup)
                         {
                             <MudTd>
@@ -123,7 +119,7 @@
                         }
 
 
-                        foreach (var item in GetComponentOf<IGenComponent>().Where(x => x.VisibleOnGrid))
+                        foreach (var item in GetComponentsOf<IGenComponent>().Where(x => x.VisibleOnGrid))
                         {
                             @*@onclick:stopPropagation = "EditMode==EditMode.Popup"*@
                             <MudTd @onclick:stopPropagation = "EditMode==EditMode.Popup">
@@ -141,7 +137,7 @@
                  
                 <RowEditingTemplate>
                     @{
-                        foreach (var item in GetComponentOf<IGenComponent>().Where(x => x.VisibleOnGrid).ToList())
+                        foreach (var item in GetComponentsOf<IGenComponent>().Where(x => x.VisibleOnGrid).ToList())
                         {
                             <MudTd>
                                 @item.RenderAsComponent(context,ignoreLabels:true)
@@ -167,15 +163,23 @@
                 </ChildRowContent>
 
                 <PagerContent >
-                    <MudTablePager   PageSizeOptions="new int[] { 10,25,50,100, DataSource.Count() == 0 ?999:DataSource.Count()}" />
+                    <MudTablePager   PageSizeOptions="new[] { 10,25,50,100, !DataSource.Any() ?999:DataSource.Count}" />
                 </PagerContent>
                 <EditButtonContent Context="button">
 
                     @{
-                        EditButtonActionList.Add((button.ButtonAction, SelectedItem));
+                        if(!EditButtonActionList.Contains(button.ButtonAction))
+                            EditButtonActionList.Add((button.ButtonAction));
                         <div style="@(DetailClicked?"pointer-events: none;opacity:0.4;":string.Empty)">
 
-                            <MudIconButton @ref="EditButtonRef" Size="@Size.Small" Icon="@Icons.Outlined.Edit" Class="pa-0" OnClick="@(button.ButtonAction)" Disabled="@button.ButtonDisabled" />
+                            <MudIconButton @ref="EditButtonRef" Size="@Size.Small" Icon="@Icons.Outlined.Edit" Class="pa-0" OnClick="@(
+                            async () =>
+                            {
+                                if(ViewState == ViewState.None)
+                                    ViewState = ViewState.Update; if (ViewState != ViewState.Create && Load.HasDelegate) await Load.InvokeAsync(this);
+                                button.ButtonAction.Invoke();
+                            })" 
+                            Disabled="@button.ButtonDisabled" />
 
                             <MudIconButton Size="@Size.Small" Icon="@Icons.Outlined.Delete" Class="pa-0" OnClick="@(()=>OnDeleteClicked(button.ButtonAction))" Disabled="@button.ButtonDisabled" />
 

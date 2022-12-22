@@ -1,50 +1,44 @@
-﻿using System;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics.CodeAnalysis;
 using Generator.Components.Extensions;
 using Generator.Components.Interfaces;
 using Generator.Shared.Extensions;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
-using Microsoft.VisualBasic;
 using MudBlazor;
 
 namespace Generator.Components.Components
 {
-	public class GenDatePicker:MudDatePicker,IGenDatePicker
-	{
-		 
-        #region CascadingParameters
+    public class GenDatePicker : MudDatePicker, IGenDatePicker
+    {
         [CascadingParameter(Name = nameof(ParentComponent))]
         public GenGrid ParentComponent { get; set; }
-        #endregion
- 
+
         [Parameter, EditorBrowsable(EditorBrowsableState.Never)]
         public object Model { get; set; }
 
         [Parameter]
-        [EditorRequired()]
+        [EditorRequired]
         public string BindingField { get; set; }
 
         public Type DataType { get; set; } = typeof(DateTime);
 
         public object GetDefaultValue => DataType.GetDefaultValue();
 
-        [Parameter, AllowNull]
+        [Parameter]
         [Range(1, 12, ErrorMessage = "Column width must be between 1 and 12")]
         public int Width { get; set; }
 
-        [Parameter, AllowNull]
+        [Parameter]
         public int Order { get; set; }
 
-        [Parameter, AllowNull]
+        [Parameter]
         public bool VisibleOnEdit { get; set; } = true;
 
-        [Parameter, AllowNull]
+        [Parameter]
         public bool VisibleOnGrid { get; set; } = true;
 
-        [Parameter, AllowNull]
+        [Parameter]
         public bool EnabledOnEdit { get; set; } = true;
 
         [Parameter]
@@ -67,49 +61,42 @@ namespace Generator.Components.Components
 
         protected override Task OnInitializedAsync()
         {
-            
             ParentComponent?.AddChildComponent(this);
 
             return Task.CompletedTask;
         }
 
-        protected override void BuildRenderTree(RenderTreeBuilder __builder)
+        protected override void BuildRenderTree(RenderTreeBuilder builder)
         {
             if (Model is not null && ParentComponent is not null)
-                base.BuildRenderTree(__builder);
+                base.BuildRenderTree(builder);
         }
 
- 
         public void OnDateChanged(DateTime? date)
         {
             Model.SetPropertyValue(BindingField, date);
         }
 
-       
-
         public RenderFragment RenderAsComponent(object model, bool ignoreLabels = false) => (builder) =>
         {
             Model = model;
 
-            DateChanged = EventCallback.Factory.Create<DateTime?>(this, x => OnDateChanged(x));
+            DateChanged = EventCallback.Factory.Create<DateTime?>(this, OnDateChanged);
 
             Date = (DateTime?)model.GetPropertyValue(BindingField);
 
-            this.RenderComponent(model, builder, ignoreLabels);
+            builder.RenderComponent(new RenderParameters<GenDatePicker>(this, model, ignoreLabels));
         };
-         
 
         public RenderFragment RenderAsGridComponent(object model) => (builder) =>
         {
-            //Model = model;
-
             Date = (DateTime?)model.GetPropertyValue(BindingField);
 
             if (Date is null) return;
-            this.RenderGrid(model,builder, Date.Value.ToString(DateFormat));
-        };
 
-         
+            RenderExtensions.RenderGrid(builder, Date.Value.ToString(DateFormat));
+        };
     }
 }
+
 

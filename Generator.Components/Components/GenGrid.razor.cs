@@ -1,67 +1,51 @@
-﻿using System;
-using Microsoft.AspNetCore.Components;
-using System.Diagnostics.CodeAnalysis;
-using System.Xml.Linq;
-using MudBlazor;
-using System.Collections.ObjectModel;
-using System.Reflection;
-using Generator.Shared.Extensions;
-using Generator.Components.Interfaces;
-using Force.DeepCloner;
+﻿using Force.DeepCloner;
+using Generator.Components.Args;
 using Generator.Components.Enums;
-using System.ComponentModel;
+using Generator.Components.Interfaces;
+using Generator.Shared.Extensions;
 using Mapster;
-using Generator.Shared.TEST_WILL_DELETE_LATER;
-using MudBlazorFix;
-using System.Data.Common;
-using System.Windows.Input;
-using System.Dynamic;
+using Microsoft.AspNetCore.Components;
+using MudBlazor;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Generator.Components.Components;
 
-
-public partial class GenGrid : MudTable<object>, IGenGrid
+public partial class GenGrid : MudTable<object>, IGenView
 {
     public ViewState ViewState { get; set; } = ViewState.None;
-
-    private MudTable<object> GridRef { get; set; }
-
 
     public MudIconButton EditButtonRef { get; set; }
 
     public bool DetailClicked { get; set; }
 
-    #region NonParams
     public List<IGenComponent> Components { get; set; } = new();
-    private string _SearchString = string.Empty;
+
+    private string _searchString = string.Empty;
+
     public bool IsFirstRender { get; set; } = true;
-    public bool SearchDisabled { get; set; } = false;
+
+    public bool SearchDisabled { get; set; }
+
     public object OriginalEditItem { get; set; }
 
-
     private string AddIcon { get; set; } = Icons.Material.Filled.AddCircle;
-    #endregion
-
-
-    #region Parameters
 
     [Parameter]
-    public EventCallback<object> Create { get; set; }
+    public EventCallback<GenGridArgs> Create { get; set; }
 
     [Parameter]
-    public EventCallback<object> Delete { get; set; }
+    public EventCallback<GenGridArgs> Delete { get; set; }
 
     [Parameter]
-    public EventCallback<object> Update { get; set; }
+    public EventCallback<GenGridArgs> Update { get; set; }
 
     //Form Load
     [Parameter]
-    public EventCallback Load { get; set; }
+    public EventCallback<IGenView> Load { get; set; }
 
     [CascadingParameter(Name = nameof(ParentComponent))]
     public GenGrid ParentComponent { get; set; }
 
-    
     [Parameter]
     public string Title { get; set; }
 
@@ -71,17 +55,9 @@ public partial class GenGrid : MudTable<object>, IGenGrid
     [Parameter]
     public string SearchPlaceHolderText { get; set; } = "Search";
 
-    [Parameter, EditorRequired()]
-    public IEnumerable<object> DataSource { get; set; }
+    [Parameter, EditorRequired]
+    public ICollection<object> DataSource { get; set; }
 
-    #endregion
-
-    #region CascadingParameters
-
-
-    #endregion
-
-    #region RenderFragments
     [Parameter, AllowNull]
     public RenderFragment GenColumns { get; set; }
 
@@ -93,149 +69,169 @@ public partial class GenGrid : MudTable<object>, IGenGrid
     [Parameter, EditorRequired]
     public EditMode EditMode { get; set; }
 
+    public bool NewDisabled { get; set; }
 
-    public bool NewDisabled { get; set; } = false;
+    public bool ExpandDisabled { get; set; }
 
-    public bool ExpandDisabled { get; set; } = false;
-    
-
-    #endregion
-
-
-    #region Methods
-
-    private bool SearchFunction(object Model)
+    private bool SearchFunction(object model)
     {
-        if (string.IsNullOrEmpty(_SearchString)) return true;
+        if (string.IsNullOrEmpty(_searchString)) return true;
 
-        var searchableFields = GetComponentOf<IGenTextField>()
-            .Where((x) => x.BindingField is not null && x.VisibleOnGrid );
+        var searchableFields = GetComponentsOf<IGenTextField>()
+            .Where((x) => x.BindingField is not null && x.VisibleOnGrid);
 
-        foreach (var field in searchableFields)
-        {
-            var columnValue = Model.GetPropertyValue(field.BindingField);
+        //foreach (var field in searchableFields)
+        //{
+        //    var columnValue = model.GetPropertyValue(field.BindingField);
 
-            if (columnValue is null) continue;
+        //    if (columnValue is null) continue;
 
-            if (columnValue.ToString().Contains(_SearchString, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
+        //    if (columnValue.ToString()!.Contains(_searchString, StringComparison.OrdinalIgnoreCase))
+        //        return true;
+        //}
+
+        return searchableFields.Select(field => model.GetPropertyValue(field.BindingField)).Where(columnValue => columnValue is not null).Any(columnValue => columnValue.ToString()!.Contains(_searchString, StringComparison.OrdinalIgnoreCase));
     }
 
-    private List<T> GetComponentOf<T>() where T : IGenComponent
-    {
-        return Components.Where(x => x is T).Cast<T>().ToList() ;
-         
-    }
-
-    public void AddChildComponent(IGenComponent childComponent)
-    {
-        if (Components.Any(x => x.BindingField == childComponent.BindingField)) return;
-        Components.Add(childComponent);
-    }
-
-
-    #endregion
-
-    #region RowEditMethods
-
-    private List<(Action,object)> EditButtonActionList { get; set; } = new();
+    private List<Action> EditButtonActionList { get; set; } = new();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if(ViewState == ViewState.Create)
-        {
-            var firstItem = EditButtonActionList.FirstOrDefault(x => x.Item1.Target.CastTo<MudTr>().Item == SelectedItem);
-            //((dynamic)GridRef.Context.Rows.First().Value).StartEditingItem();
-            //await EditButtonRef.OnClick.InvokeAsync();
-            firstItem.Item1.Invoke();
-            //EditButtonActionList.Last().Item1.Invoke();
-            ViewState = ViewState.None;
+        if (!firstRender)
+            await OnNewItemAddEditInvoker();
 
-            await InvokeAsync(StateHasChanged);
+        // await base.OnAfterRenderAsync(firstRender);
+    }
+
+    /// <summary>
+    /// When a new item is added in inlinemode, for better user experience it has to be on the first row of the table,
+    /// therefore the newly added item is inserted to 0 index of datasource however the component is not rendered at that moment
+    /// and this method must be called on after render method
+    /// </summary>
+    /// <returns></returns>
+    private async Task OnNewItemAddEditInvoker()
+    {
+        if (ViewState == ViewState.Create)
+        {
+            if (!EditButtonActionList.Any() && EditButtonRef is not null)
+            {
+                await EditButtonRef.OnClick.InvokeAsync();
+                return;
+            }
+
+            var firstItem = EditButtonActionList.FirstOrDefault(x => x.Target?.CastTo<MudTr>().Item == SelectedItem);
+            firstItem?.Invoke();
+
+            EditButtonActionList.Clear();
         }
-        await base.OnAfterRenderAsync(firstRender);
     }
 
     protected override async Task OnInitializedAsync()
     {
-        if(ParentComponent is not null && ParentComponent.DetailClicked)
+        //Detail Grid
+        if (ParentComponent is not null && ParentComponent.DetailClicked)
         {
             await InvokeAsync(ParentComponent.StateHasChanged);
         }
-        await base.OnInitializedAsync();
     }
 
-
-
-    private async Task OnBeforeAnyAction(object element)
+    private void OnBackUp(object element)
     {
         NewDisabled = true;
         ExpandDisabled = true;
         SearchDisabled = true;
         SelectedItem = element;
         OriginalEditItem = element.DeepClone();
-
-        await InvokeAsync(StateHasChanged);
-
     }
 
-    private async Task OnCommit(object element)
+    private async Task OnCommit(object model)
     {
         NewDisabled = false;
         ExpandDisabled = false;
-        if (Create.HasDelegate)
-            await Create.InvokeAsync(element);
+
+        await ViewInvokeDecisioner(model);
     }
 
-    public async Task OnAddNewEvent()
+    /// <summary>
+    /// Invokes the eventcallback depending on the viewstate
+    /// </summary>
+    /// <param name="model"></param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
+    private async Task ViewInvokeDecisioner(object model)
+    {
+        switch (ViewState)
+        {
+            case ViewState.Create when Create.HasDelegate:
+                await Create.InvokeAsync(new GenGridArgs(null, model));
+                break;
+
+            case ViewState.Update when Update.HasDelegate:
+                await Update.InvokeAsync(new GenGridArgs(OriginalEditItem, model));
+                break;
+
+            case ViewState.Delete when Delete.HasDelegate:
+                await Delete.InvokeAsync(new GenGridArgs(OriginalEditItem, model));
+                break;
+
+            case ViewState.None:
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+
+        ViewState = ViewState.None;
+    }
+
+    public async Task OnCreateClick()
     {
         EditButtonActionList.Clear();
+
         ViewState = ViewState.Create;
 
-        var DatasourceModelType = DataSource.GetType().GenericTypeArguments[0];
+        var datasourceModelType = DataSource.GetType().GenericTypeArguments[0];
 
-        var newData = Components.ToDictionary<IGenComponent, string, object>(comp => comp.BindingField, comp => comp.GetDefaultValue);
+        var newData = Components.ToDictionary(comp => comp.BindingField, comp => comp.GetDefaultValue);
 
-        var adaptedData = newData.Adapt(typeof(Dictionary<string, object>), DatasourceModelType);
+        var adaptedData = newData.Adapt(typeof(Dictionary<string, object>), datasourceModelType);
 
         SelectedItem = adaptedData;
 
-        DataSource = DataSource.Insert(0,SelectedItem);
+        //await ViewInvokeDecisioner(SelectedItem);
 
-        //AddNewTriggered = true;
+        //if (Load.HasDelegate)
+        //    await Load.InvokeAsync(this);
 
-        //await InvokeAsync(StateHasChanged);
+        //DataSource.Insert(0, SelectedItem);
+
+        if (Load.HasDelegate)
+            await Load.InvokeAsync(this);
     }
 
     public async Task OnEditCLick()
     {
-        if(Load.HasDelegate)
-            await Load.InvokeAsync();
+        //if (Load.HasDelegate && ViewState != ViewState.Create)
+        //    await Load.InvokeAsync(this);
     }
 
-
-
-    public  Task OnDeleteClicked(Action buttonAction)
+    public Task OnDeleteClicked(Action buttonAction)
     {
-        //var param1s = buttonAction.Method.GetParameters();
+        ViewState = ViewState.Delete;
 
         var dataToRemove = buttonAction.Target.CastTo<MudTr>().Item;
 
-        DataSource = DataSource.Remove(dataToRemove);
-
-        StateHasChanged();
+        DataSource.Remove(dataToRemove);
 
         return Task.CompletedTask;
     }
 
-    private void OnCancel(object element)
+    private void OnCancelClick(object element)
     {
-
-        var datasourceItem = DataSource.Select((item, index) => new { item, index }).FirstOrDefault(x => x.item == element);
-
-        DataSource = DataSource.Replace(datasourceItem.index, OriginalEditItem);
+        if (ViewState == ViewState.Create)
+            DataSource.RemoveAt(0);
+        else
+            DataSource.Replace(element, OriginalEditItem);
 
         SearchDisabled = false;
         NewDisabled = false;
@@ -250,7 +246,6 @@ public partial class GenGrid : MudTable<object>, IGenGrid
         DetailClicked = !DetailClicked;
 
         await InvokeAsync(StateHasChanged);
-
     }
 
     public RenderFragment RenderAsComponent(object model, bool ignoreLabels = false)
@@ -263,7 +258,21 @@ public partial class GenGrid : MudTable<object>, IGenGrid
         throw new NotImplementedException();
     }
 
+    public TComponent GetComponent<TComponent>(string bindingField) where TComponent : IGenComponent
+    {
+        var item = Components.FirstOrDefault(x => x.BindingField.Equals(bindingField));
 
-    #endregion
+        return item is null ? default : item.CastTo<TComponent>();
+    }
+
+    private List<TComponent> GetComponentsOf<TComponent>() where TComponent : IGenComponent
+    {
+        return Components.Where(x => x is TComponent).Cast<TComponent>().ToList();
+    }
+
+    public void AddChildComponent(IGenComponent childComponent)
+    {
+        if (Components.Any(x => x.BindingField == childComponent.BindingField)) return;
+        Components.Add(childComponent);
+    }
 }
-
